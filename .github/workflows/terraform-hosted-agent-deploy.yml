@@ -28,13 +28,13 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Terraform (disable wrapper so exit codes work)
+      - name: Setup Terraform (disable wrapper)
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.13.3"
           terraform_wrapper: false
 
-      - name: Show working directory and Terraform files
+      - name: Sanity - where am I and what .tf files exist?
         shell: powershell
         run: |
           Write-Host "PWD: $(Get-Location)"
@@ -42,25 +42,31 @@ jobs:
 
       - name: Terraform version
         shell: powershell
-        run: terraform.exe version
+        run: |
+          $tf = (Get-Command terraform.exe).Source
+          & $tf version
+          exit $LASTEXITCODE
 
       - name: Terraform Init (reconfigure and upgrade)
         shell: powershell
         run: |
-          $args = @("-input=false","-reconfigure","-upgrade")
-          & terraform.exe init @args
+          $tf = (Get-Command terraform.exe).Source
+          $args = @("init","-input=false","-reconfigure","-upgrade")
+          & $tf @args
           exit $LASTEXITCODE
 
       - name: Terraform Validate
         shell: powershell
         run: |
-          & terraform.exe validate
+          $tf = (Get-Command terraform.exe).Source
+          & $tf validate
           exit $LASTEXITCODE
 
       - name: Terraform FMT Check (non-blocking)
         shell: powershell
         run: |
-          & terraform.exe fmt -check
+          $tf = (Get-Command terraform.exe).Source
+          & $tf fmt -check
           if ($LASTEXITCODE -ne 0) {
             Write-Host "terraform fmt would reformat files; continuing."
             $global:LASTEXITCODE = 0
@@ -69,7 +75,8 @@ jobs:
       - name: Terraform state (before plan)
         shell: powershell
         run: |
-          & terraform.exe state list
+          $tf = (Get-Command terraform.exe).Source
+          & $tf state list
           if ($LASTEXITCODE -ne 0) {
             Write-Host "No resources in state (yet)."
             $global:LASTEXITCODE = 0
@@ -79,8 +86,9 @@ jobs:
         id: plan
         shell: powershell
         run: |
-          $planArgs = @("-input=false","-out=tfplan.bin","-detailed-exitcode")
-          & terraform.exe plan @planArgs
+          $tf = (Get-Command terraform.exe).Source
+          $planArgs = @("plan","-input=false","-out=tfplan.bin","-detailed-exitcode")
+          & $tf @planArgs
           $code = $LASTEXITCODE
           Write-Host "Plan exit code: $code"
           if ($code -eq 2) {
@@ -96,19 +104,22 @@ jobs:
       - name: Show Plan (human readable)
         shell: powershell
         run: |
-          & terraform.exe show -no-color tfplan.bin
+          $tf = (Get-Command terraform.exe).Source
+          & $tf show -no-color tfplan.bin
           exit $LASTEXITCODE
 
       - name: Terraform Apply (only when there are changes)
         if: steps.plan.outputs.has_changes == 'true'
         shell: powershell
         run: |
-          $applyArgs = @("-input=false","-auto-approve","tfplan.bin")
-          & terraform.exe apply @applyArgs
+          $tf = (Get-Command terraform.exe).Source
+          $applyArgs = @("apply","-input=false","-auto-approve","tfplan.bin")
+          & $tf @applyArgs
           exit $LASTEXITCODE
 
       - name: Terraform Outputs
         shell: powershell
         run: |
-          & terraform.exe output
+          $tf = (Get-Command terraform.exe).Source
+          & $tf output
           exit $LASTEXITCODE
