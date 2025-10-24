@@ -2,7 +2,7 @@ name: "Terraform — RG & Storage Deploy (Self-Hosted Windows)"
 
 on:
   push:
-    branches: [ main ]  # Automatically runs when pushing to main
+    branches: [ main ]
 
 jobs:
   terraform:
@@ -11,44 +11,52 @@ jobs:
     environment: production
 
     env:
-      # Azure authentication via environment variables (set as repository secrets)
       ARM_SUBSCRIPTION_ID: ${{ secrets.TF_SUBSCRIPTION_ID }}
-      ARM_CLIENT_ID: ${{ secrets.TF_CLIENT_ID }}
-      ARM_CLIENT_SECRET: ${{ secrets.TF_CLIENT_SECRET }}
-      ARM_TENANT_ID: ${{ secrets.TF_TENANT_ID }}
+      ARM_CLIENT_ID:       ${{ secrets.TF_CLIENT_ID }}
+      ARM_CLIENT_SECRET:   ${{ secrets.TF_CLIENT_SECRET }}
+      ARM_TENANT_ID:       ${{ secrets.TF_TENANT_ID }}
 
     steps:
-      # 1️⃣ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2️⃣ Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: '1.13.3'  # Your version
+          terraform_version: '1.13.3'
 
-      # 3️⃣ Initialize Terraform with backend
-      - name: Terraform Init
+      - name: Terraform Init (upgrade providers; fail fast if backend perms wrong)
         shell: powershell
-        run: terraform init -input=false
+        run: terraform init -input=false -upgrade
 
-      # 4️⃣ Validate configuration
       - name: Terraform Validate
         shell: powershell
         run: terraform validate
 
-      # 5️⃣ Terraform Plan (no -var inline for Azure credentials)
-      - name: Terraform Plan
+      - name: Terraform Plan (with detailed exit code)
+        id: plan
         shell: powershell
-        run: terraform plan -out=tfplan-rg-storage.bin
+        run: |
+          terraform plan -input=false -out=tfplan-rg-storage.bin -detailed-exitcode
+          $exit = $LASTEXITCODE
+          if ($exit -eq 2) {
+            Write-Host "Plan has changes."
+          } elseif ($exit -eq 0) {
+            Write-Host "No changes in plan."
+          } else {
+            exit $exit
+          }
 
-      # 6️⃣ Terraform Apply
-      - name: Terraform Apply
+      - name: Show Plan (human readable)
+        if: always()
         shell: powershell
-        run: terraform apply -auto-approve tfplan-rg-storage.bin
+        run: terraform show -no-color tfplan-rg-storage.bin
 
-      # 7️⃣ Show outputs
+      - name: Terraform Apply (only when plan has changes)
+        if: steps.plan.outcome == 'success' && steps.plan.conclusion == 'success'
+        shell: powershell
+        run: terraform apply -input=false -auto-approve tfplan-rg-storage.bin
+
       - name: Terraform Outputs
         shell: powershell
         run: terraform output
