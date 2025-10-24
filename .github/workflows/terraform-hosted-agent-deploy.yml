@@ -1,20 +1,126 @@
-Run terraform fmt -check || exit 0
-  terraform fmt -check || exit 0
-  shell: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.EXE -command ". '{0}'"
-  env:
-    ARM_SUBSCRIPTION_ID: ***
-    ARM_CLIENT_ID: ***
-    ARM_CLIENT_SECRET: ***
-    ARM_TENANT_ID: ***
-    STATE_ACCOUNT: selfhostagentstorage
-    STATE_CONTAINER: selfhost-container
-    TERRAFORM_CLI_PATH: C:\Users\azureuser\actions-runner\_work\_temp\45c48f5c-7049-40ed-ad0b-4ad5f63f2538
-  
-At C:\Users\azureuser\actions-runner\_work\_temp\f813da59-2614-4811-ac04-dda719513b60.ps1:2 char:22
-+ terraform fmt -check || exit 0
-+                      ~~
-The token '||' is not a valid statement separator in this version.
-    + CategoryInfo          : ParserError: (:) [], ParseException
-    + FullyQualifiedErrorId : InvalidEndOfLine
- 
-Error: Process completed with exit code 1.
+name: "Terraform - Hosted Agent Deploy"
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  terraform:
+    name: Terraform Plan and Apply
+    runs-on: self-hosted
+    environment: production
+
+    # If your .tf files are in a subfolder, uncomment and set:
+    # defaults:
+    #   run:
+    #     working-directory: infra/rg-storage
+
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.TF_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID:       ${{ secrets.TF_CLIENT_ID }}
+      ARM_CLIENT_SECRET:   ${{ secrets.TF_CLIENT_SECRET }}
+      ARM_TENANT_ID:       ${{ secrets.TF_TENANT_ID }}
+      STATE_ACCOUNT:       selfhostagentstorage
+      STATE_CONTAINER:     selfhost-container
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.3"
+
+      - name: Runner info
+        shell: powershell
+        run: |
+          $os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version
+          Write-Host "OS: $($os.Caption) $($os.Version)"
+          Write-Host "PWD: $(Get-Location)"
+          Write-Host "Repo: $env:GITHUB_REPOSITORY"
+          Write-Host "Runner Labels: $env:RUNNER_LABELS"
+
+      - name: Azure identity and subscription
+        shell: powershell
+        run: |
+          if (Get-Command az -ErrorAction SilentlyContinue) {
+            az login --service-principal `
+              -u $env:ARM_CLIENT_ID `
+              -p $env:ARM_CLIENT_SECRET `
+              --tenant $env:ARM_TENANT_ID | Out-Null
+            az account set --subscription $env:ARM_SUBSCRIPTION_ID
+            az account show -o table
+          } else {
+            Write-Host "Azure CLI not found on runner; skipping Azure checks."
+          }
+
+      - name: Terraform Init (reconfigure and upgrade)
+        shell: powershell
+        run: terraform init -input=false -reconfigure -upgrade
+
+      - name: Show backend container blobs (state access check)
+        shell: powershell
+        run: |
+          if (Get-Command az -ErrorAction SilentlyContinue) {
+            az storage blob list `
+              --account-name $env:STATE_ACCOUNT `
+              --container-name $env:STATE_CONTAINER `
+              --auth-mode login -o table
+          } else {
+            Write-Host "Azure CLI not found; skipping blob list."
+          }
+
+      - name: Terraform Validate
+        shell: powershell
+        run: terraform validate
+
+      # Optional: keep, but PowerShell-safe (no ||)
+      - name: Terraform FMT Check (non-blocking)
+        shell: powershell
+        run: |
+          terraform fmt -check
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "terraform fmt would reformat files; continuing."
+            $global:LASTEXITCODE = 0
+          }
+
+      - name: Terraform state (before plan)
+        shell: powershell
+        run: |
+          terraform state list
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "No resources in state (yet)."
+            $global:LASTEXITCODE = 0
+          }
+
+      - name: Terraform Plan (capture detailed exit code)
+        id: plan
+        shell: powershell
+        run: |
+          terraform plan -input=false -out=tfplan.bin -detailed-exitcode
+          $code = $LASTEXITCODE
+          Write-Host "Plan exit code: $code"
+          if ($code -eq 2) {
+            "has_changes=true"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          } elseif ($code -eq 0) {
+            "has_changes=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          } else {
+            exit $code
+          }
+
+      - name: Show Plan (human readable)
+        shell: powershell
+        run: terraform show -no-color tfplan.bin
+
+      - name: Terraform Apply (only when there are changes)
+        if: steps.plan.outputs.has_changes == 'true'
+        shell: powershell
+        run: terraform apply -input=false -auto-approve tfplan.bin
+
+      - name: Terraform Outputs
+        shell: powershell
+        run: terraform output
