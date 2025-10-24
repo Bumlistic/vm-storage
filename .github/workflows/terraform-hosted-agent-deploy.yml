@@ -1,9 +1,8 @@
 name: "Terraform — RG & Storage Deploy (Self-Hosted Windows)"
 
-# Trigger automatically on push to main
 on:
   push:
-    branches: [ main ]
+    branches: [ main ]  # Automatically runs when pushing to main
 
 jobs:
   terraform:
@@ -12,7 +11,7 @@ jobs:
     environment: production
 
     env:
-      # Azure authentication via environment variables (use GitHub Secrets)
+      # Azure authentication via environment variables (set as repository secrets)
       ARM_SUBSCRIPTION_ID: ${{ secrets.TF_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.TF_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.TF_CLIENT_SECRET }}
@@ -27,24 +26,29 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5   # Match your Terraform version
+          terraform_version: '1.13.3'  # Your version
 
-      # 3️⃣ Initialize Terraform with existing backend
+      # 3️⃣ Initialize Terraform with backend
       - name: Terraform Init
+        shell: powershell
         run: terraform init -input=false
 
       # 4️⃣ Validate configuration
       - name: Terraform Validate
+        shell: powershell
         run: terraform validate
 
-      # 5️⃣ Terraform Plan
+      # 5️⃣ Terraform Plan (no -var inline for Azure credentials)
       - name: Terraform Plan
-        run: terraform plan -out="tfplan.bin"
+        shell: powershell
+        run: terraform plan -out=tfplan-rg-storage.bin
 
       # 6️⃣ Terraform Apply
       - name: Terraform Apply
-        run: terraform apply -auto-approve "tfplan.bin"
+        shell: powershell
+        run: terraform apply -auto-approve tfplan-rg-storage.bin
 
       # 7️⃣ Show outputs
-      - name: Terraform Output
+      - name: Terraform Outputs
+        shell: powershell
         run: terraform output
