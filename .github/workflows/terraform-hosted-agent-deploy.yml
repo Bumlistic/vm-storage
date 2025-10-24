@@ -31,24 +31,24 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5  # Use the Terraform version matching your config
+          terraform_version: 1.9.5  # Match your Terraform version
 
       # 3️⃣ Initialize Terraform
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: pwsh
+        shell: powershell
         run: terraform init -input=false
 
       # 4️⃣ Validate Terraform configuration
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: pwsh
+        shell: powershell
         run: terraform validate
 
-      # 5️⃣ Terraform Plan (PowerShell-friendly multiline)
+      # 5️⃣ Terraform Plan
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: pwsh
+        shell: powershell
         run: |
           $args = @(
             "plan"
@@ -63,10 +63,10 @@ jobs:
           )
           terraform @args
 
-      # 6️⃣ Terraform Apply (PowerShell-friendly)
+      # 6️⃣ Terraform Apply
       - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: pwsh
+        shell: powershell
         run: |
           $args = @(
             "apply"
@@ -78,5 +78,5 @@ jobs:
       # 7️⃣ Show outputs
       - name: Show Terraform Outputs
         working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: pwsh
+        shell: powershell
         run: terraform output
