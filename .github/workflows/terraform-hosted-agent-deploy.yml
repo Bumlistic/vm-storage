@@ -1,45 +1,50 @@
-name: "Terraform - Deploy RG & Storage"
+name: "Terraform — RG & Storage Deploy (Self-Hosted Windows)"
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main ]  # Automatically runs when pushing to main
+
+env:
+  TF_WORKING_DIR: '.'
+  TF_PLAN_FILE: 'tfplan-rg-storage.bin'
+  TF_STATE_FILE: 'rg-storage.tfstate'
 
 jobs:
   terraform:
+    name: Terraform Plan & Apply
     runs-on: self-hosted
+    environment: production
 
     env:
-      TF_WORKING_DIR: '.'
-      TF_PLAN_FILE: 'tfplan-rg-storage.bin'
-      TF_STATE_FILE: 'rg-storage.tfstate'
-
-      # ✅ Azure environment variables (used automatically by Terraform)
+      # Azure authentication via environment variables
       ARM_SUBSCRIPTION_ID: ${{ secrets.TF_SUBSCRIPTION_ID }}
-      ARM_CLIENT_ID:       ${{ secrets.TF_CLIENT_ID }}
-      ARM_CLIENT_SECRET:   ${{ secrets.TF_CLIENT_SECRET }}
-      ARM_TENANT_ID:       ${{ secrets.TF_TENANT_ID }}
+      ARM_CLIENT_ID: ${{ secrets.TF_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.TF_CLIENT_SECRET }}
+      ARM_TENANT_ID: ${{ secrets.TF_TENANT_ID }}
 
     steps:
+      # 1️⃣ Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ Setup Terraform
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: '1.13.3'
+          terraform_version: 1.9.5   # Match your Terraform version
 
+      # 3️⃣ Initialize Terraform
       - name: Terraform Init
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init -backend-config="path=${{ env.TF_STATE_FILE }}"
+        run: terraform init -input=false
 
+      # 4️⃣ Validate Terraform configuration
+      - name: Terraform Validate
+        run: terraform validate
+
+      # 5️⃣ Terraform Plan
       - name: Terraform Plan
-        working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform plan -out="${{ env.TF_PLAN_FILE }}"
 
-      - name: Terraform Apply
-        working-directory: ${{ env.TF_WORKING_DIR }}
+      # 6️⃣ Terraform Apply
+      - name: Terraform Apply (Auto-approve)
         run: terraform apply -auto-approve "${{ env.TF_PLAN_FILE }}"
-
-      - name: Show Terraform Outputs
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform output
