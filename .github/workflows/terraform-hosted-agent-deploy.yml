@@ -11,11 +11,6 @@ jobs:
     runs-on: self-hosted
     environment: production
 
-    # If your .tf files are in a subfolder, uncomment and set:
-    # defaults:
-    #   run:
-    #     working-directory: infra/rg-storage
-
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.TF_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID:       ${{ secrets.TF_CLIENT_ID }}
@@ -28,10 +23,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
+      - name: Setup Terraform (disable wrapper so exit codes work)
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      # Optional: install Azure CLI on the runner if you want the blob/state checks
+      # - name: Install Azure CLI (Windows)
+      #   shell: powershell
+      #   run: |
+      #     Invoke-WebRequest -Uri https://aka.ms/installazurecliwindows -OutFile AzureCLI.msi
+      #     Start-Process msiexec.exe -ArgumentList '/I AzureCLI.msi /qn' -Wait
 
       - name: Runner info
         shell: powershell
@@ -40,43 +43,15 @@ jobs:
           Write-Host "OS: $($os.Caption) $($os.Version)"
           Write-Host "PWD: $(Get-Location)"
           Write-Host "Repo: $env:GITHUB_REPOSITORY"
-          Write-Host "Runner Labels: $env:RUNNER_LABELS"
-
-      - name: Azure identity and subscription
-        shell: powershell
-        run: |
-          if (Get-Command az -ErrorAction SilentlyContinue) {
-            az login --service-principal `
-              -u $env:ARM_CLIENT_ID `
-              -p $env:ARM_CLIENT_SECRET `
-              --tenant $env:ARM_TENANT_ID | Out-Null
-            az account set --subscription $env:ARM_SUBSCRIPTION_ID
-            az account show -o table
-          } else {
-            Write-Host "Azure CLI not found on runner; skipping Azure checks."
-          }
 
       - name: Terraform Init (reconfigure and upgrade)
         shell: powershell
         run: terraform init -input=false -reconfigure -upgrade
 
-      - name: Show backend container blobs (state access check)
-        shell: powershell
-        run: |
-          if (Get-Command az -ErrorAction SilentlyContinue) {
-            az storage blob list `
-              --account-name $env:STATE_ACCOUNT `
-              --container-name $env:STATE_CONTAINER `
-              --auth-mode login -o table
-          } else {
-            Write-Host "Azure CLI not found; skipping blob list."
-          }
-
       - name: Terraform Validate
         shell: powershell
         run: terraform validate
 
-      # Optional: keep, but PowerShell-safe (no ||)
       - name: Terraform FMT Check (non-blocking)
         shell: powershell
         run: |
