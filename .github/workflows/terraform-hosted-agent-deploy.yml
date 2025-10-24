@@ -1,12 +1,14 @@
 name: "Terraform — RG & Storage Deploy (Self-Hosted Windows)"
 
+# Automatically runs on push to main branch
 on:
   push:
-    branches: [ main ]  # Runs automatically on push to main
+    branches: [ main ]
 
 env:
   TF_WORKING_DIR: '.'
   TF_PLAN_FILE: 'tfplan-rg-storage.bin'
+  TF_STATE_FILE: 'selfhost-storage.tfstate'
 
 jobs:
   terraform:
@@ -15,7 +17,7 @@ jobs:
     environment: production
 
     env:
-      # Azure credentials from GitHub secrets
+      # Azure authentication via environment variables
       ARM_SUBSCRIPTION_ID: ${{ secrets.TF_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.TF_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.TF_CLIENT_SECRET }}
@@ -30,37 +32,29 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5
+          terraform_version: 1.9.5  # match your Terraform version
 
-      # 3️⃣ Initialize Terraform with existing backend
+      # 3️⃣ Initialize Terraform
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: terraform init -input=false -reconfigure
+        run: terraform init -input=false
 
       # 4️⃣ Validate Terraform configuration
       - name: Terraform Validate
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform validate
 
-      # 5️⃣ Terraform Plan (pass all required variables)
+      # 5️⃣ Terraform Plan (single-line for PowerShell)
       - name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
-        run: |
-          terraform plan -out="${{ env.TF_PLAN_FILE }}" \
-            -var="subscription_id=${{ secrets.TF_SUBSCRIPTION_ID }}" \
-            -var="client_id=${{ secrets.TF_CLIENT_ID }}" \
-            -var="client_secret=${{ secrets.TF_CLIENT_SECRET }}" \
-            -var="tenant_id=${{ secrets.TF_TENANT_ID }}" \
-            -var="resource_group_name=rg-demo" \
-            -var="storage_account_name=stgaccdemo" \
-            -var="location=Canada Central"
+        run: terraform plan -out="${{ env.TF_PLAN_FILE }}" -var="subscription_id=${{ secrets.TF_SUBSCRIPTION_ID }}" -var="client_id=${{ secrets.TF_CLIENT_ID }}" -var="client_secret=${{ secrets.TF_CLIENT_SECRET }}" -var="tenant_id=${{ secrets.TF_TENANT_ID }}" -var="resource_group_name=rg-demo" -var="storage_account_name=stgaccdemo" -var="location=Canada Central"
 
-      # 6️⃣ Terraform Apply
-      - name: Terraform Apply
+      # 6️⃣ Terraform Apply (single-line for PowerShell)
+      - name: Terraform Apply (Auto-approve)
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform apply -auto-approve "${{ env.TF_PLAN_FILE }}"
 
-      # 7️⃣ Show outputs
-      - name: Terraform Outputs
+      # 7️⃣ Show Terraform Outputs
+      - name: Show Terraform Outputs
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: terraform output
