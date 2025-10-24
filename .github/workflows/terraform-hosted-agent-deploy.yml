@@ -1,13 +1,9 @@
 name: "Terraform — RG & Storage Deploy (Self-Hosted Windows)"
 
+# Trigger automatically on push to main
 on:
   push:
-    branches: [ main ]  # Automatically runs when pushing to main
-
-env:
-  TF_WORKING_DIR: '.'                  # Terraform working directory
-  TF_PLAN_FILE: 'tfplan-rg-storage.bin'
-  TF_STATE_FILE: 'selfhost-storage.tfstate'
+    branches: [ main ]
 
 jobs:
   terraform:
@@ -16,7 +12,7 @@ jobs:
     environment: production
 
     env:
-      # Azure authentication via environment variables
+      # Azure authentication via environment variables (use GitHub Secrets)
       ARM_SUBSCRIPTION_ID: ${{ secrets.TF_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID: ${{ secrets.TF_CLIENT_ID }}
       ARM_CLIENT_SECRET: ${{ secrets.TF_CLIENT_SECRET }}
@@ -31,52 +27,24 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5  # Match your Terraform version
+          terraform_version: 1.9.5   # Match your Terraform version
 
-      # 3️⃣ Initialize Terraform
+      # 3️⃣ Initialize Terraform with existing backend
       - name: Terraform Init
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: powershell
         run: terraform init -input=false
 
-      # 4️⃣ Validate Terraform configuration
+      # 4️⃣ Validate configuration
       - name: Terraform Validate
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: powershell
         run: terraform validate
 
       # 5️⃣ Terraform Plan
       - name: Terraform Plan
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: powershell
-        run: |
-          $args = @(
-            "plan"
-            "-out=${{ env.TF_PLAN_FILE }}"
-            "-var=subscription_id=${{ secrets.TF_SUBSCRIPTION_ID }}"
-            "-var=client_id=${{ secrets.TF_CLIENT_ID }}"
-            "-var=client_secret=${{ secrets.TF_CLIENT_SECRET }}"
-            "-var=tenant_id=${{ secrets.TF_TENANT_ID }}"
-            "-var=resource_group_name=rg-demo"
-            "-var=storage_account_name=stgaccdemo"
-            "-var=location=Canada Central"
-          )
-          terraform @args
+        run: terraform plan -out="tfplan.bin"
 
       # 6️⃣ Terraform Apply
       - name: Terraform Apply
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: powershell
-        run: |
-          $args = @(
-            "apply"
-            "-auto-approve"
-            "${{ env.TF_PLAN_FILE }}"
-          )
-          terraform @args
+        run: terraform apply -auto-approve "tfplan.bin"
 
       # 7️⃣ Show outputs
-      - name: Show Terraform Outputs
-        working-directory: ${{ env.TF_WORKING_DIR }}
-        shell: powershell
+      - name: Terraform Output
         run: terraform output
