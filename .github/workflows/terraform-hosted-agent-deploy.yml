@@ -11,6 +11,11 @@ jobs:
     runs-on: self-hosted
     environment: production
 
+    # If your .tf files are in a subfolder, uncomment and set it:
+    # defaults:
+    #   run:
+    #     working-directory: infra/rg-storage
+
     env:
       ARM_SUBSCRIPTION_ID: ${{ secrets.TF_SUBSCRIPTION_ID }}
       ARM_CLIENT_ID:       ${{ secrets.TF_CLIENT_ID }}
@@ -29,33 +34,33 @@ jobs:
           terraform_version: "1.13.3"
           terraform_wrapper: false
 
-      # Optional: install Azure CLI on the runner if you want the blob/state checks
-      # - name: Install Azure CLI (Windows)
-      #   shell: powershell
-      #   run: |
-      #     Invoke-WebRequest -Uri https://aka.ms/installazurecliwindows -OutFile AzureCLI.msi
-      #     Start-Process msiexec.exe -ArgumentList '/I AzureCLI.msi /qn' -Wait
-
-      - name: Runner info
+      - name: Show working directory and Terraform files
         shell: powershell
         run: |
-          $os = Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version
-          Write-Host "OS: $($os.Caption) $($os.Version)"
           Write-Host "PWD: $(Get-Location)"
-          Write-Host "Repo: $env:GITHUB_REPOSITORY"
+          dir -Name *.tf
+
+      - name: Terraform version
+        shell: powershell
+        run: terraform.exe version
 
       - name: Terraform Init (reconfigure and upgrade)
         shell: powershell
-        run: terraform init -input=false -reconfigure -upgrade
+        run: |
+          $args = @("-input=false","-reconfigure","-upgrade")
+          & terraform.exe init @args
+          exit $LASTEXITCODE
 
       - name: Terraform Validate
         shell: powershell
-        run: terraform validate
+        run: |
+          & terraform.exe validate
+          exit $LASTEXITCODE
 
       - name: Terraform FMT Check (non-blocking)
         shell: powershell
         run: |
-          terraform fmt -check
+          & terraform.exe fmt -check
           if ($LASTEXITCODE -ne 0) {
             Write-Host "terraform fmt would reformat files; continuing."
             $global:LASTEXITCODE = 0
@@ -64,7 +69,7 @@ jobs:
       - name: Terraform state (before plan)
         shell: powershell
         run: |
-          terraform state list
+          & terraform.exe state list
           if ($LASTEXITCODE -ne 0) {
             Write-Host "No resources in state (yet)."
             $global:LASTEXITCODE = 0
@@ -74,7 +79,8 @@ jobs:
         id: plan
         shell: powershell
         run: |
-          terraform plan -input=false -out=tfplan.bin -detailed-exitcode
+          $planArgs = @("-input=false","-out=tfplan.bin","-detailed-exitcode")
+          & terraform.exe plan @planArgs
           $code = $LASTEXITCODE
           Write-Host "Plan exit code: $code"
           if ($code -eq 2) {
@@ -89,13 +95,20 @@ jobs:
 
       - name: Show Plan (human readable)
         shell: powershell
-        run: terraform show -no-color tfplan.bin
+        run: |
+          & terraform.exe show -no-color tfplan.bin
+          exit $LASTEXITCODE
 
       - name: Terraform Apply (only when there are changes)
         if: steps.plan.outputs.has_changes == 'true'
         shell: powershell
-        run: terraform apply -input=false -auto-approve tfplan.bin
+        run: |
+          $applyArgs = @("-input=false","-auto-approve","tfplan.bin")
+          & terraform.exe apply @applyArgs
+          exit $LASTEXITCODE
 
       - name: Terraform Outputs
         shell: powershell
-        run: terraform output
+        run: |
+          & terraform.exe output
+          exit $LASTEXITCODE
