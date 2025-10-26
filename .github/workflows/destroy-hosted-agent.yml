@@ -1,0 +1,117 @@
+name: "Terraform - Destroy (Manual, No Prompt)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      tf_working_dir:
+        description: "Relative path to Terraform files (optional)"
+        required: false
+        default: "."
+
+jobs:
+  destroy:
+    name: Terraform Destroy
+    runs-on: self-hosted
+    environment: production
+    defaults:
+      run:
+        working-directory: ${{ inputs.tf_working_dir }}
+
+    env:
+      ARM_SUBSCRIPTION_ID: ${{ secrets.TF_SUBSCRIPTION_ID }}
+      ARM_CLIENT_ID:       ${{ secrets.TF_CLIENT_ID }}
+      ARM_CLIENT_SECRET:   ${{ secrets.TF_CLIENT_SECRET }}
+      ARM_TENANT_ID:       ${{ secrets.TF_TENANT_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform (disable wrapper)
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.3"
+          terraform_wrapper: false
+
+      - name: Show working directory and .tf files
+        shell: powershell
+        run: |
+          Write-Host "PWD: $(Get-Location)"
+          dir -Name *.tf
+
+      - name: Terraform version
+        shell: powershell
+        run: |
+          $tf = (Get-Command terraform.exe).Source
+          & $tf version
+          exit $LASTEXITCODE
+
+      - name: Terraform Init (reconfigure & upgrade)
+        shell: powershell
+        run: |
+          $tf = (Get-Command terraform.exe).Source
+          $args = @("init","-input=false","-reconfigure","-upgrade")
+          & $tf @args
+          exit $LASTEXITCODE
+
+      - name: Terraform Validate
+        shell: powershell
+        run: |
+          $tf = (Get-Command terraform.exe).Source
+          & $tf validate
+          exit $LASTEXITCODE
+
+      - name: Current state (before destroy)
+        shell: powershell
+        run: |
+          $tf = (Get-Command terraform.exe).Source
+          & $tf state list
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "No resources currently in state."
+            $global:LASTEXITCODE = 0
+          }
+
+      - name: Terraform Plan (destroy, capture exit code)
+        id: plan_destroy
+        shell: powershell
+        run: |
+          $tf = (Get-Command terraform.exe).Source
+          $planArgs = @("plan","-destroy","-input=false","-out=tfdestroy.bin","-detailed-exitcode")
+          & $tf @planArgs
+          $code = $LASTEXITCODE
+          Write-Host "Destroy plan exit code: $code"
+          if ($code -eq 2) {
+            "has_destroys=true"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          } elseif ($code -eq 0) {
+            "has_destroys=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          } else {
+            exit $code
+          }
+
+      - name: Show Destroy Plan (human readable)
+        shell: powershell
+        run: |
+          $tf = (Get-Command terraform.exe).Source
+          & $tf show -no-color tfdestroy.bin
+          exit $LASTEXITCODE
+
+      - name: Terraform Apply Destroy (auto-approve)
+        if: steps.plan_destroy.outputs.has_destroys == 'true'
+        shell: powershell
+        run: |
+          $tf = (Get-Command terraform.exe).Source
+          $applyArgs = @("apply","-input=false","-auto-approve","tfdestroy.bin")
+          & $tf @applyArgs
+          exit $LASTEXITCODE
+
+      - name: State after destroy (non-blocking)
+        shell: powershell
+        run: |
+          $tf = (Get-Command terraform.exe).Source
+          & $tf state list
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "No resources in state (post-destroy)."
+            $global:LASTEXITCODE = 0
+          }
